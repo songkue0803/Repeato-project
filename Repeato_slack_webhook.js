@@ -1,34 +1,9 @@
-/**
- * Slack Incoming Webhook 설정을 통해 받은 URL을 아래에 입력하세요.
- */
-// [주의] Webhook URL이 정확한지 다시 한번 확인해주세요.
+// Slack Incoming Webhook URL을 아래에 입력하세요.
 const WebhookUrl = '여기에_슬랙_웹훅_주소_입력'; 
 
-// ==========================================
-// [종료 알림] 배치가 완료될 때 실행 (이 기능은 지원됨)
-// ==========================================
 batchRunner.addOnBatchCompleted('config', async (batchRun) => {
   try {
-    // ── 강제 중단 감지 ──────────────────────────────────────
-    // 강제 중단 시 stats.duration은 이전 실행 캐시값 그대로 유지됨
-    // → stats.duration이 실제 경과 시간보다 5초 이상 길면 강제 중단으로 판단
-    function parseDurationToSec(d) {
-      if (!d) return 0;
-      const p = String(d).split(':');
-      if (p.length !== 3) return 0;
-      return parseInt(p[0]) * 3600 + parseInt(p[1]) * 60 + parseInt(p[2]);
-    }
-
-    const stats = batchRun.stats || {};
-    const statsSec = parseDurationToSec(stats.duration);
-    const actualSec = Math.floor((Date.now() - (batchRun.createdOn || Date.now())) / 1000);
-
-    if (statsSec > actualSec + 5) {
-      log('배치가 강제 중단되어 슬랙 알림을 보내지 않습니다.');
-      return;
-    }
-    // ────────────────────────────────────────────────────────
-    // 1. 리포트 생성 및 업로드
+    // 리포트 생성 및 업로드
     const reportPath = await batchRunner.createBatchRunExport();
     log('Created report: ' + reportPath);
 
@@ -36,23 +11,20 @@ batchRunner.addOnBatchCompleted('config', async (batchRun) => {
     const reportUrl = await batchRunner.uploadReport(reportPath, new AbortController());
     log('Uploaded report: ' + reportUrl);
 
-    // 2. 데이터 추출
-
-    
-    // 배치 이름 가져오기
+    // 데이터 추출
+    const stats = batchRun.stats || {};
     const batchName = batchRun.title || "Unknown Batch"; 
-    
     const passed = stats.successCount || 0;
     const failed = stats.failCount || 0;
     const total = stats.totalCount || (passed + failed);
     const duration = stats.duration || "00:00:00"; 
 
-    // 3. 상태 설정
+    // 상태 설정
     const isSuccess = batchRun.wasSuccessful;
     const emoji = isSuccess ? "✅" : "❌";
-    const titleText = "Repeato 자동화 테스트 결과 - 담당자"; 
+    const titleText = "Repeato 자동화 테스트 결과 - 담당자”; 
     
-    // 4. Slack Block Kit 메시지 구성
+    // Slack Block Kit 메시지 구성
     const payload = {
       blocks: [
         {
@@ -63,45 +35,42 @@ batchRunner.addOnBatchCompleted('config', async (batchRun) => {
             "emoji": true
           }
         },
-        // 첫 번째 줄: [테스트 이름] | [결과]
         {
           "type": "section",
           "fields": [
             {
               "type": "mrkdwn",
-              "text": `*테스트 이름:*\n${batchName}`
+              "text": `테스트 이름:\n${batchName}`
             },
             {
               "type": "mrkdwn",
-              "text": `*결과:*\n${isSuccess ? 'PASS' : 'FAIL'}`
+              "text": `결과:\n${isSuccess ? 'PASS' : 'FAIL'}`
             }
           ]
         },
-        // 두 번째 줄: [소요 시간] | [총 테스트]
         {
           "type": "section",
           "fields": [
             {
               "type": "mrkdwn",
-              "text": `*소요 시간:*\n${duration}`
+              "text": `소요 시간:\n${duration}`
             },
             {
               "type": "mrkdwn",
-              "text": `*총 테스트 케이스 수:*\n${total}건`
+              "text": `총 테스트 케이스 수:\n${total}건`
             }
           ]
         },
-        // 세 번째 줄: [성공] | [실패]
         {
           "type": "section",
           "fields": [
             {
               "type": "mrkdwn",
-              "text": `*성공한 케이스 수:*\n${passed}건`
+              "text": `성공한 케이스 수:\n${passed}건`
             },
             {
               "type": "mrkdwn",
-              "text": `*실패한 케이스 수:*\n${failed}건`
+              "text": `실패한 케이스 수:\n${failed}건`
             }
           ]
         },
@@ -129,11 +98,20 @@ batchRunner.addOnBatchCompleted('config', async (batchRun) => {
       ]
     };
 
-    // 5. 슬랙으로 전송
-    await axios.post(WebhookUrl, payload, {
-      headers: { 'Content-Type': 'application/json' }
+    // fetch를 사용하여 슬랙으로 전송
+    const response = await fetch(WebhookUrl, {
+      method: 'POST',
+      headers: {
+        'Content-Type': 'application/json'
+      },
+      body: JSON.stringify(payload)
     });
-    log('Completion message sent to Slack.');
+
+    if (response.ok) {
+      log('Completion message sent to Slack.');
+    } else {
+      log(`Failed to send Slack message. Status: ${response.status}`);
+    }
     
   } catch (error) {
     log('Failed in completion handler: ' + error);
